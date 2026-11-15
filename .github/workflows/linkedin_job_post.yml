@@ -1,5 +1,6 @@
 name: LinkedIn job poster
 
+
 on:
   schedule:
     # GitHub cron is always UTC. Lagos = UTC+1, so subtract 1 hour.

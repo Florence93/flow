@@ -41,3 +41,4 @@ jobs:
           git add scraper/discovered_boards.json
           git diff --cached --quiet || git commit -m "chore: refresh discovered boards [skip ci]"
           git push
+          
