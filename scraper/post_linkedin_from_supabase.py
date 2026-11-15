@@ -30,7 +30,7 @@ UTM_CAMPAIGN = "job_posts"
 # 1:30pm, 2:00pm Lagos). The script has no time-of-day checks, so a late GitHub
 # start never causes a skipped batch.
 SCHEDULE_TZ = ZoneInfo("Africa/Lagos")  # defines the "day" for the daily cap (midnight Lagos)
-DAILY_LIMIT = 30            # 3 runs x 10 jobs
+DAILY_LIMIT = 50            # 5 runs x 10 jobs
 PER_RUN_LIMIT = 10          # max posts per run
 MAX_FAILURES_PER_RUN = 5    # stop the run if this many jobs fail to post
 SLEEP_BETWEEN_POSTS_SECONDS = 5

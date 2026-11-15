@@ -7,6 +7,8 @@ on:
     - cron: "7 7 * * *"    # 8:07am Lagos
     - cron: "7 8 * * *"    # 9:07am Lagos
     - cron: "7 9 * * *"    # 10:07am Lagos
+    - cron: "7 10 * * *"   # 11:07am Lagos
+    - cron: "7 11 * * *"   # 12:07pm Lagos
   workflow_dispatch: {}
 
 concurrency:
