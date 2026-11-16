@@ -34,9 +34,15 @@ DAILY_LIMIT = 50            # 5 runs x 10 jobs
 PER_RUN_LIMIT = 10          # max posts per run
 MAX_FAILURES_PER_RUN = 5    # stop the run if this many jobs fail to post
 SLEEP_BETWEEN_POSTS_SECONDS = 5
+MAX_HASHTAGS = 12           # hashtags per LinkedIn post
+MAX_POST_CHARS = 2900       # LinkedIn's limit is 3000 characters
 
 JOB_TYPE_LABELS = {"fullTime": "Full-Time", "partTime": "Part-Time",
                    "contract": "Contract", "freelance": "Freelance"}
+
+# Generic hashtags added after the job-specific ones (company + role tags).
+BASE_HASHTAGS = ["#RemoteJobs", "#USARemoteJobs", "#CanadaRemoteJobs", "#UKRemoteJobs",
+                 "#WorkFromHome", "#Hiring", "#NowHiring", "#RemoteWork"]
 
 
 def build_tracked_url(slug: str) -> str:
@@ -192,7 +198,7 @@ Return ONLY one valid JSON object, no prose, no markdown fences:
   "doItems": array of 4-6 short bullets (max 90 chars each, start with a verb, no trailing period),
   "lookingFor": array of 4-5 short bullets (max 90 chars each, no trailing period),
   "whyJoin": array of 2-3 short bullets (max 70 chars each) based ONLY on benefits/mission stated in the text, or [] if none,
-  "hashtags": array of 2 role/industry hashtags in CamelCase, e.g. "#FullStackDeveloper", "#SoftwareEngineer"
+  "hashtags": array of 4-5 role/industry hashtags in CamelCase, e.g. "#FullStackDeveloper", "#SoftwareEngineer", "#Python", "#WebDevelopment"
 }
 All text must be plain text with no emojis, no markdown, and no invented facts."""
 
@@ -229,6 +235,19 @@ def generate_linkedin_bullets(job: dict) -> dict:
 # ============================================================================
 # Post builder
 # ============================================================================
+def build_hashtags(company: str, li: dict) -> list[str]:
+    """Job-specific tags (company + role) first, then generic ones, de-duplicated and capped."""
+    role_tags = [_hashtag(t) for t in (li.get("hashtags") or [])[:5]]
+    tags = [_hashtag(company)] + role_tags + BASE_HASHTAGS
+
+    seen, hashtags = set(), []
+    for t in tags:
+        if t and t.lower() not in seen:
+            seen.add(t.lower())
+            hashtags.append(t)
+    return hashtags[:MAX_HASHTAGS]
+
+
 def build_linkedin_post(job: dict, li: dict) -> str:
     title = job["title"]
     company = job.get("company_name") or ""
@@ -244,28 +263,32 @@ def build_linkedin_post(job: dict, li: dict) -> str:
     job_type_label = JOB_TYPE_LABELS.get(job.get("job_type"), "Full-Time")
     url = build_tracked_url(job["slug"])
 
-    tags = ["#RemoteJobs", "#USARemoteJobs", "#CanadaRemoteJobs", "#UKRemoteJobs", _hashtag(company)] + [_hashtag(t) for t in (li.get("hashtags") or [])[:2]]
-    seen, hashtags = set(), []
-    for t in tags:
-        if t and t.lower() not in seen:
-            seen.add(t.lower())
-            hashtags.append(t)
-    hashtags = hashtags[:5]
+    hashtag_line = " ".join(build_hashtags(company, li))
 
     header = f"📝 {title}\n📍 {location}\n💼 {job_type_label}"
     if summary:
         header += f"\n{summary}"
 
-    parts = [header]
+    apply_block = f"📩 Apply here:\n{url}"
+
+    # Optional sections, listed from most to least important. If the post is too
+    # long, the least important ones are dropped so the apply link and hashtags
+    # are never cut off.
+    optional = []
     if do_items:
-        parts.append("What you'll do\n" + "\n".join(f"✅ {i}" for i in do_items))
+        optional.append("What you'll do\n" + "\n".join(f"✅ {i}" for i in do_items))
     if looking:
-        parts.append("What they're looking for\n" + "\n".join(f"✔ {i}" for i in looking))
+        optional.append("What they're looking for\n" + "\n".join(f"✔ {i}" for i in looking))
     if why:
-        parts.append("Why join?\n" + "\n".join(f"⭐ {i}" for i in why))
-    parts.append(f"📩 Apply here:\n{url}")
-    parts.append(" ".join(hashtags))
-    return "\n\n".join(parts)[:2900]  # LinkedIn's limit is 3000 characters
+        optional.append("Why join?\n" + "\n".join(f"⭐ {i}" for i in why))
+
+    def assemble(sections: list[str]) -> str:
+        return "\n\n".join([header, *sections, apply_block, hashtag_line])
+
+    while optional and len(assemble(optional)) > MAX_POST_CHARS:
+        optional.pop()  # drop the least important remaining section
+
+    return assemble(optional)[:MAX_POST_CHARS]
 
 
 # ============================================================================
