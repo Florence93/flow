@@ -1,0 +1,37 @@
+name: Fiesta countdown emails
+
+on:
+  schedule:
+    - cron: "0 6 * * *"    # 06:00 UTC = 7:00 AM Lagos, daily (script only sends on schedule days)
+    - cron: "0 4 24 12 *"  # 04:00 UTC = 5:00 AM Lagos on Dec 24, for the D-Day email
+  workflow_dispatch:
+    inputs:
+      force_day:
+        description: "Test: send this countdown day now (e.g. 30). Leave empty for normal run."
+        required: false
+        default: ""
+      dry_run:
+        description: "Dry run (no Sender writes)"
+        type: boolean
+        default: false
+
+jobs:
+  countdown:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install requests
+      - run: python scripts/fiesta_countdown.py
+        env:
+          EVENTBRITE_TOKEN: ${{ secrets.EVENTBRITE_TOKEN }}
+          EVENTBRITE_EVENT_ID: ${{ secrets.EVENTBRITE_EVENT_ID }}
+          SENDER_API_TOKEN: ${{ secrets.SENDER_API_TOKEN }}
+          SENDER_GROUP_ID: ${{ secrets.SENDER_GROUP_ID }}
+          SENDER_FROM_EMAIL: ${{ secrets.SENDER_FROM_EMAIL }}
+          SENDER_FROM_NAME: "Alimosho Fitness Fiesta"
+          HERO_IMAGE_URL: https://raw.githubusercontent.com/${{ github.repository }}/main/assets/flyer_hero.jpg
+          FORCE_DAY: ${{ github.event.inputs.force_day }}
+          DRY_RUN: ${{ github.event.inputs.dry_run }}
