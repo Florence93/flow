@@ -32,6 +32,6 @@ jobs:
           SENDER_GROUP_ID: ${{ secrets.SENDER_GROUP_ID }}
           SENDER_FROM_EMAIL: ${{ secrets.SENDER_FROM_EMAIL }}
           SENDER_FROM_NAME: "Alimosho Fitness Fiesta"
-          HERO_IMAGE_URL: https://raw.githubusercontent.com/${{ github.repository }}/main/assets/flyer_hero.jpg
+          HERO_IMAGE_URL: https://raw.githubusercontent.com/${{ github.repository }}/master/assets/flyer_hero.jpg
           FORCE_DAY: ${{ github.event.inputs.force_day }}
           DRY_RUN: ${{ github.event.inputs.dry_run }}
