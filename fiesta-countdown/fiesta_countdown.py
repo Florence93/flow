@@ -31,6 +31,7 @@ FROM_EMAIL = os.environ["SENDER_FROM_EMAIL"]  # must be a verified sender in Sen
 
 FORCE_DAY = os.getenv("FORCE_DAY", "").strip()   # test a specific milestone
 DRY_RUN = os.getenv("DRY_RUN", "").lower() in ("1", "true", "yes")
+SKIP_SYNC = os.getenv("SKIP_SYNC", "").lower() in ("1", "true", "yes")  # test: do not touch the group
 
 SENDER = "https://api.sender.net/v2"
 SENDER_HEADERS = {
@@ -269,10 +270,13 @@ def main():
     days_left = int(FORCE_DAY) if FORCE_DAY else (EVENT_DATE - today).days
     print(f"Today (Lagos): {today} | days to event: {days_left}")
 
-    people = get_attendees()
-    print(f"Eventbrite attendees: {len(people)}")
-    if not DRY_RUN:
-        sync_subscribers(people)
+    if SKIP_SYNC:
+        print("SKIP_SYNC on: not pulling attendees, sending only to people already in the group")
+    else:
+        people = get_attendees()
+        print(f"Eventbrite attendees: {len(people)}")
+        if not DRY_RUN:
+            sync_subscribers(people)
 
     if days_left not in SEND_DAYS or days_left not in EMAILS:
         print("Not a countdown day. Done.")
