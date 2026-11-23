@@ -10,6 +10,10 @@ on:
         description: "Test: send this countdown day now (e.g. 30). Leave empty for normal run."
         required: false
         default: ""
+      skip_sync:
+        description: "Test mode: do NOT add Eventbrite attendees to the group (send only to who is already in it)"
+        type: boolean
+        default: true
       dry_run:
         description: "Dry run (no Sender writes)"
         type: boolean
@@ -35,3 +39,4 @@ jobs:
           HERO_IMAGE_URL: https://raw.githubusercontent.com/${{ github.repository }}/master/fiesta-countdown/assets/flyer_hero.jpg
           FORCE_DAY: ${{ github.event.inputs.force_day }}
           DRY_RUN: ${{ github.event.inputs.dry_run }}
+          SKIP_SYNC: ${{ github.event.inputs.skip_sync }}
