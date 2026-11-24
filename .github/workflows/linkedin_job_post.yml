@@ -2,14 +2,13 @@ name: LinkedIn job poster
 
 on:
   schedule:
-    # GitHub cron is UTC only. These cover 8am-12pm US Eastern in BOTH
-    # EST (UTC-5) and EDT (UTC-4). The gate step below skips the off-hour runs.
+    # GitHub cron is UTC. Lagos = UTC+1, so these are:
+    # 1:07pm, 1:37pm, 2:07pm, 2:37pm, 3:07pm Lagos
     - cron: "7 12 * * *"
+    - cron: "37 12 * * *"
     - cron: "7 13 * * *"
+    - cron: "37 13 * * *"
     - cron: "7 14 * * *"
-    - cron: "7 15 * * *"
-    - cron: "7 16 * * *"
-    - cron: "7 17 * * *"
   workflow_dispatch: {}
 
 concurrency:
@@ -24,39 +23,21 @@ jobs:
       run:
         working-directory: scraper
     steps:
-      # Checkout must come first: the default working-directory (scraper)
-      # doesn't exist until the repo has been checked out.
       - uses: actions/checkout@v4
 
-      - name: Gate on US Eastern time
-        id: gate
-        run: |
-          HOUR=$(TZ=America/New_York date +%-H)
-          echo "Eastern hour: $HOUR"
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ] || { [ "$HOUR" -ge 8 ] && [ "$HOUR" -le 12 ]; }; then
-            echo "run=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "run=false" >> "$GITHUB_OUTPUT"
-            echo "Outside posting window, skipping."
-          fi
-
       - uses: actions/setup-python@v5
-        if: steps.gate.outputs.run == 'true'
         with:
           python-version: "3.12"
 
       - name: Install dependencies
-        if: steps.gate.outputs.run == 'true'
         run: pip install -r requirements.txt
 
       - name: Write LinkedIn token
-        if: steps.gate.outputs.run == 'true'
         env:
           LINKEDIN_TOKEN_JSON: ${{ secrets.LINKEDIN_TOKEN_JSON }}
         run: printf '%s' "$LINKEDIN_TOKEN_JSON" > linkedin_token.json
 
       - name: Run poster
-        if: steps.gate.outputs.run == 'true'
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}

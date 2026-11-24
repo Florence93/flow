@@ -18,7 +18,7 @@ SUPABASE_SERVICE_ROLE_KEY = os.environ["SUPABASE_SERVICE_ROLE_KEY"]
 OPENROUTER_API_KEYS = [k.strip() for k in os.environ.get("OPENROUTER_API_KEYS", "").split(",") if k.strip()]
 OPENROUTER_MODEL = "openrouter/free"
 
-SITE_BASE_URL = "https://www.globalremotehq.com/globalremotejobs"
+SITE_BASE_URL = "https://www.globalremotehq.com/jobs"
 
 # --- UTM tracking (so Google Analytics can attribute LinkedIn post traffic) ---
 UTM_SOURCE = "linkedin"
