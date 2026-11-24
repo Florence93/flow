@@ -24,6 +24,10 @@ jobs:
       run:
         working-directory: scraper
     steps:
+      # Checkout must come first: the default working-directory (scraper)
+      # doesn't exist until the repo has been checked out.
+      - uses: actions/checkout@v4
+
       - name: Gate on US Eastern time
         id: gate
         run: |
@@ -35,9 +39,6 @@ jobs:
             echo "run=false" >> "$GITHUB_OUTPUT"
             echo "Outside posting window, skipping."
           fi
-
-      - uses: actions/checkout@v4
-        if: steps.gate.outputs.run == 'true'
 
       - uses: actions/setup-python@v5
         if: steps.gate.outputs.run == 'true'
