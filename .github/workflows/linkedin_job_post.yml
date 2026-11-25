@@ -3,12 +3,12 @@ name: LinkedIn job poster
 on:
   schedule:
     # GitHub cron is UTC. Lagos = UTC+1, so these are:
-    # 1:07pm, 1:37pm, 2:07pm, 2:37pm, 3:07pm Lagos
-    - cron: "7 12 * * *"
-    - cron: "37 12 * * *"
-    - cron: "7 13 * * *"
-    - cron: "37 13 * * *"
-    - cron: "7 14 * * *"
+    # 8:07am, 8:37am, 9:07am, 9:37am, 10:07am Lagos
+    - cron: "7 7 * * *"
+    - cron: "37 7 * * *"
+    - cron: "7 8 * * *"
+    - cron: "37 8 * * *"
+    - cron: "7 9 * * *"
   workflow_dispatch: {}
 
 concurrency:
