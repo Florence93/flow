@@ -2,15 +2,13 @@ name: LinkedIn job poster
 
 on:
   schedule:
-    # GitHub cron is UTC. Lagos = UTC+1, so these are:
-    # 8:07am, 8:37am, 9:07am, 9:37am, 10:07am Lagos
     - cron: "7 7 * * *"
-    - cron: "37 7 * * *"
     - cron: "7 8 * * *"
-    - cron: "37 8 * * *"
     - cron: "7 9 * * *"
+    - cron: "7 10 * * *"
+    - cron: "7 11 * * *"
   workflow_dispatch: {}
-
+  
 concurrency:
   group: linkedin-poster
   cancel-in-progress: false
