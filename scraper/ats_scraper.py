@@ -13,11 +13,18 @@ tables in sync:
 Only jobs posted by the hiring company itself are kept. Job boards, aggregators,
 staffing and recruiting agencies are filtered out (see BLOCKED_NAMES / AGENCY_TEXT_RE).
 
+US-only mode (on by default, set US_ONLY=false to turn off):
+  * location names a non-US country/region/city (or worldwide)  -> skipped
+  * location names the US (country, state, "US-based" ...)        -> kept
+  * location is just "Remote" / empty / unrecognised              -> treated as US, but the
+    job description is checked and the job is skipped if it restricts the role to another
+    region (e.g. "must be located in Canada") or says it is not open to US candidates
+
 Usage
-  python ats_monitor.py --discover-only      # just build the board list and exit
-  python ats_monitor.py --dry-run --once     # preview, writes nothing
-  python ats_monitor.py                      # run forever
-  python ats_monitor.py --once               # single pass (cron / GitHub Actions)
+  python ats_scraper.py --discover-only      # just build the board list and exit
+  python ats_scraper.py --dry-run --once     # preview, writes nothing
+  python ats_scraper.py                      # run forever
+  python ats_scraper.py --once               # single pass (cron / GitHub Actions)
 Env: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
 """
 from __future__ import annotations
@@ -52,6 +59,10 @@ CONCURRENCY = int(os.environ.get("CONCURRENCY", "15"))
 REMOTE_ONLY = os.environ.get("REMOTE_ONLY", "true").lower() != "false"
 USER_AGENT = "GlobalRemoteHQ-JobMonitor/1.0 (+https://globalremotehq.com)"
 
+# --- US-only filter ---------------------------------------------------------- #
+US_ONLY = os.environ.get("US_ONLY", "true").lower() != "false"
+# keep jobs that list the US together with other countries, e.g. "Remote - US, Canada"
+US_ALLOW_MULTI = os.environ.get("US_ALLOW_MULTI", "false").lower() == "true"
 
 BOARDS_CACHE = os.environ.get("BOARDS_CACHE", "discovered_boards.json")
 REFRESH_DAYS = int(os.environ.get("REFRESH_DAYS", "7"))        # re-discover boards this often
@@ -219,6 +230,123 @@ def parse_eligibility(location: str):
         countries.insert(0, "United States")
     worldwide = bool(WORLDWIDE_RE.search(location)) and not countries
     return (countries or None), (states or None), worldwide
+
+
+# --------------------------------------------------------------------------- #
+# US-only filter
+#   1) location_verdict(): looks only at the location string  -> us / non_us / unknown
+#   2) passes_us_description(): looks at the job description (needs the full text, so it
+#      runs after the detail fetch) and decides jobs whose location was only "Remote"
+# --------------------------------------------------------------------------- #
+US_STATE_ABBR = (
+    "AL|AK|AZ|AR|CA|CO|CT|DE|FL|GA|HI|ID|IL|IN|IA|KS|KY|LA|ME|MD|MA|MI|MN|MS|MO|MT|NE|NV|"
+    "NH|NJ|NM|NY|NC|ND|OH|OK|OR|PA|RI|SC|SD|TN|TX|UT|VT|VA|WA|WV|WI|WY|DC"
+)
+# "Austin, TX" / "US-CA" / "US CA"  (comma or US prefix required, so "IN"/"OR"/"ME" in
+# normal words don't count)
+STATE_ABBR_RE = re.compile(rf"(?:,\s*|\bUS[-\s]|\bU\.S\.[-\s])(?:{US_STATE_ABBR})(?![A-Za-z])")
+US_LOC_RE = re.compile(
+    r"(?<![\w.])(?:united states(?: of america)?|usa|u\.s\.a?\.?|us[- ]only|us[- ]based|"
+    r"north america)(?!\w)",
+    re.I,
+)
+US_BARE_RE = re.compile(r"(?<![\w.])US(?![\w.])")  # upper-case only, never the word "us"
+
+NON_US_NAMES = [
+    # countries
+    r"canada", r"united kingdom", r"uk", r"great britain", r"england", r"scotland", r"wales",
+    r"northern ireland", r"ireland", r"germany", r"deutschland", r"france", r"spain",
+    r"portugal", r"italy", r"netherlands", r"belgium", r"switzerland", r"austria", r"sweden",
+    r"norway", r"denmark", r"finland", r"poland", r"romania", r"bulgaria", r"czech(?:ia| republic)?",
+    r"ukraine", r"turkey", r"israel", r"uae", r"united arab emirates", r"saudi arabia", r"egypt",
+    r"nigeria", r"kenya", r"south africa", r"ghana", r"india", r"pakistan", r"bangladesh",
+    r"philippines", r"indonesia", r"malaysia", r"singapore", r"vietnam", r"thailand", r"japan",
+    r"china", r"korea", r"taiwan", r"hong kong", r"australia", r"new zealand", r"brazil",
+    r"argentina", r"colombia", r"chile", r"peru", r"(?<!new )mexico", r"costa rica",
+    # provinces / regions
+    r"british columbia", r"ontario", r"quebec", r"alberta", r"emea", r"apac", r"latam",
+    r"latin america", r"europe(?:an union)?", r"eu", r"asia", r"africa", r"middle east",
+    # unambiguous big cities
+    r"london", r"berlin", r"toronto", r"vancouver", r"amsterdam", r"bangalore", r"bengaluru",
+    r"mumbai", r"lagos", r"nairobi", r"sydney", r"tokyo", r"lisbon", r"madrid", r"barcelona",
+    r"warsaw", r"manila", r"sao paulo", r"mexico city",
+]
+NON_US_ALT = "|".join(NON_US_NAMES)
+NON_US_RE = re.compile(rf"(?<!\w)(?:{NON_US_ALT})(?!\w)", re.I)
+
+
+def location_verdict(location: str) -> str:
+    """'us' | 'non_us' | 'unknown'. Unknown (e.g. just "Remote") is treated as US later."""
+    loc = (location or "").strip()
+    if not loc:
+        return "unknown"
+    countries, states, _ = parse_eligibility(loc)
+    has_us = bool(
+        (countries and "United States" in countries)
+        or states
+        or US_LOC_RE.search(loc)
+        or US_BARE_RE.search(loc)
+        or STATE_ABBR_RE.search(loc)
+    )
+    has_other = bool(NON_US_RE.search(loc))
+    if has_us:
+        return "us" if (not has_other or US_ALLOW_MULTI) else "non_us"
+    if has_other:
+        return "non_us"
+    if WORLDWIDE_RE.search(loc):  # "Remote - Worldwide" is not US-only
+        return "non_us"
+    return "unknown"
+
+
+# --- description checks -------------------------------------------------------- #
+# US token: the words "United States", or upper-case US / USA / U.S. (never the word "us")
+_US = r"(?<![\w.])(?:united states(?: of america)?|(?-i:USA|U\.S\.A?\.?|US))(?!\w)"
+
+# description positively says the role is for the US
+DESC_US_RE = re.compile(
+    r"\bmust (?:be|reside|live|be located|be based|be residing)(?: \w+){0,3} (?:in|within) the " + _US
+    + r"|\b(?:located|based|residing|reside|live) (?:in|within) the " + _US
+    + r"|(?<![\w.])(?:US|U\.S\.)[- ]based\b"
+    + r"|\b(?:authori[sz]ed|eligible|legally authori[sz]ed) to work in the " + _US
+    + r"|\bwithin the " + _US
+    + r"|\bremote\b[^.]{0,60}" + _US
+    + r"|" + _US + r"[- ](?:remote|only|residents?|citizens?)\b"
+    + r"|\b401\(?k\)?",
+    re.I,
+)
+
+# description restricts the role to another region
+DESC_NON_US_RE = re.compile(
+    r"\b(?:must|should|need to) (?:be|reside|live|be located|be based|be residing)(?: \w+){0,3} "
+    rf"(?:in|within) (?:the )?(?:{NON_US_ALT})(?!\w)"
+    rf"|\b(?:open|available|restricted|limited)(?: only)? to (?:candidates|applicants|residents)"
+    rf"(?: \w+){{0,3}} (?:in|from|based in|located in) (?:the )?(?:{NON_US_ALT})(?!\w)",
+    re.I,
+)
+
+# description explicitly closes the role to US candidates
+DESC_NOT_US_RE = re.compile(
+    r"\bnot (?:available|open|eligible|accepting)(?: \w+){0,6} (?:in|from|located in) (?:the )?" + _US,
+    re.I,
+)
+
+
+def plain_text(s: Optional[str]) -> str:
+    return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", html.unescape(s or ""))).strip()
+
+
+def passes_us_description(j: "Job") -> bool:
+    """Run after the full description has been fetched."""
+    text = f"{plain_text(j.description_html)} {plain_text(j.requirements_html)}"
+    if DESC_NOT_US_RE.search(text):
+        return False
+    if location_verdict(j.location) == "us":
+        return True
+    # location was just "Remote" / empty / unrecognised -> US, unless the description
+    # restricts the role to another region (and never says anything about the US)
+    if DESC_NON_US_RE.search(text) and not DESC_US_RE.search(text):
+        return False
+    return True
 
 
 def map_job_type(raw: str, title: str) -> str:
@@ -620,7 +748,7 @@ class Engine:
         self.categories: dict[str, str] = {}
         self.hashes: dict[str, str] = {}  # job slug -> last seen content version
         self.known: dict[str, dict] = {}  # company_id -> {slug: row} (loaded once, kept in memory)
-        self.rejected: set = set()        # job slugs skipped as agency posts
+        self.rejected: set = set()        # job slugs skipped as agency / non-US posts
         self.fails: Counter = Counter()
         self.retry_at: dict[str, float] = {}
         self.cat_lock = asyncio.Lock()
@@ -677,6 +805,12 @@ class Engine:
 
     async def build_row(self, slug: str, j: Job, company_id: str) -> dict:
         countries, states, worldwide = parse_eligibility(j.location)
+        if US_ONLY:
+            # a bare "Remote" job that passed the US filter is a US job
+            worldwide = False
+            countries = countries or []
+            if "United States" not in countries:
+                countries.insert(0, "United States")
         return {
             "slug": slug,
             "title": j.title.strip()[:250],
@@ -692,7 +826,7 @@ class Engine:
             "worldwide_only": worldwide,
             "status": "published",
             "posted_at": to_iso(j.posted_at) or now_iso(),
-            "eligible_countries": countries,
+            "eligible_countries": countries or None,
             "eligible_states": states,
         }
 
@@ -708,12 +842,17 @@ class Engine:
     async def sync_source(self, src: Source) -> Counter:
         stats: Counter = Counter()
         hint, jobs = await ADAPTERS[src.ats](self.http, src.board)
+        fetched = len(jobs)  # what the board really returned, before any filtering
         name = src.name or hint or re.sub(r"[-_.]+", " ", src.board).title()
         if is_blocked_company(name, src.board):
             return stats
         cslug = slugify(name)
         if REMOTE_ONLY:
             jobs = [j for j in jobs if j.remote]
+        if US_ONLY:
+            # location clearly outside the US -> drop now (before any detail fetch).
+            # "Remote" / empty / unrecognised locations stay and get the description check.
+            jobs = [j for j in jobs if location_verdict(j.location) != "non_us"]
         live = {job_slug(j, cslug): j for j in jobs if j.title and j.url}
         live_hash = {s: ver(j.title, j.url, j.version) for s, j in live.items()}
         stats["live"] = len(live)
@@ -745,6 +884,10 @@ class Engine:
         await asyncio.gather(*(self._detail(j) for _, j in new))
         good = []
         for s, j in new:
+            if US_ONLY and not passes_us_description(j):
+                self.rejected.add(s)
+                stats["skipped_non_us"] += 1
+                continue
             if EXCLUDE_AGENCIES and looks_like_agency(j):
                 self.rejected.add(s)
                 stats["skipped_agency"] += 1
@@ -775,6 +918,8 @@ class Engine:
             if not (changed or reopen):
                 continue
             await self._detail(j)
+            if US_ONLY and not passes_us_description(j):
+                continue
             patch = {"title": j.title.strip()[:250], "application_url": j.url}
             if j.salary:
                 patch["salary_range"] = j.salary
@@ -791,9 +936,11 @@ class Engine:
                 r.update(title=patch["title"], application_url=j.url, status=patch.get("status", r["status"]))
             stats["updated"] += 1
 
-        # ---- removed jobs -> closed (never when the board returned nothing: could be an API glitch)
+        # ---- removed jobs -> closed (never when the board returned nothing: could be an API glitch).
+        # Jobs filtered out as non-US are not in `live`, so previously imported non-US jobs get
+        # closed here too.
         gone = [s for s, r in existing.items() if s not in live and r["status"] == "published" and is_managed(r)]
-        if gone and live:
+        if gone and fetched:
             if self.dry:
                 log.info("[dry] would close %d jobs at %s", len(gone), name)
             else:
@@ -1030,7 +1177,8 @@ async def monitor(args):
         sources = get_sources(boards, args.only)
         while True:
             started = time.time()
-            log.info("Polling %d boards%s", len(sources), " (dry run)" if args.dry_run else "")
+            log.info("Polling %d boards%s%s", len(sources), " (dry run)" if args.dry_run else "",
+                     " (US only)" if US_ONLY else "")
             await eng.run_cycle(sources)
             if args.once:
                 return
