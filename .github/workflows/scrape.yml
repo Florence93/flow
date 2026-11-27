@@ -1,6 +1,5 @@
 name: scrape-jobs
 
-
 on:
   schedule:
     - cron: "0 */3 * * *"      # every 3 hours (UTC)
@@ -25,10 +24,18 @@ jobs:
 
       - run: pip install -r scraper/requirements.txt
 
+      - name: Restore discovered boards
+        uses: actions/cache@v4
+        with:
+          path: scraper/discovered_boards.json
+          key: boards-${{ github.run_id }}
+          restore-keys: boards-
+
       - name: Scrape ATS boards into Supabase
         working-directory: scraper
         run: python ats_scraper.py --once
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-
+          US_ONLY: "true"
+          US_STRICT: "true"

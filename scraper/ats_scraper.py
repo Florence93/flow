@@ -63,6 +63,7 @@ USER_AGENT = "GlobalRemoteHQ-JobMonitor/1.0 (+https://globalremotehq.com)"
 US_ONLY = os.environ.get("US_ONLY", "true").lower() != "false"
 # keep jobs that list the US together with other countries, e.g. "Remote - US, Canada"
 US_ALLOW_MULTI = os.environ.get("US_ALLOW_MULTI", "false").lower() == "true"
+US_STRICT = os.environ.get("US_STRICT", "true").lower() != "false"
 
 BOARDS_CACHE = os.environ.get("BOARDS_CACHE", "discovered_boards.json")
 REFRESH_DAYS = int(os.environ.get("REFRESH_DAYS", "7"))        # re-discover boards this often
@@ -297,6 +298,13 @@ def location_verdict(location: str) -> str:
         return "non_us"
     return "unknown"
 
+US_NAMES = {"us", "usa", "united states", "united states of america"}
+
+def job_verdict(j: "Job") -> str:
+    c = (j.country or "").strip().lower()
+    if c:
+        return "us" if c in US_NAMES else "non_us"
+    return location_verdict(j.location)
 
 # --- description checks -------------------------------------------------------- #
 # US token: the words "United States", or upper-case US / USA / U.S. (never the word "us")
@@ -335,18 +343,21 @@ def plain_text(s: Optional[str]) -> str:
     return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", html.unescape(s or ""))).strip()
 
 
+def has_us_evidence(j: "Job", text: str) -> bool:
+    return bool(DESC_US_RE.search(text)) or (j.salary or "").upper().startswith(("USD", "$"))
+
 def passes_us_description(j: "Job") -> bool:
-    """Run after the full description has been fetched."""
     text = f"{plain_text(j.description_html)} {plain_text(j.requirements_html)}"
     if DESC_NOT_US_RE.search(text):
         return False
-    if location_verdict(j.location) == "us":
+    v = job_verdict(j)
+    if v == "us":
         return True
-    # location was just "Remote" / empty / unrecognised -> US, unless the description
-    # restricts the role to another region (and never says anything about the US)
+    if v == "non_us":
+        return False
     if DESC_NON_US_RE.search(text) and not DESC_US_RE.search(text):
         return False
-    return True
+    return has_us_evidence(j, text) if US_STRICT else True
 
 
 def map_job_type(raw: str, title: str) -> str:
@@ -423,6 +434,7 @@ class Job:
     salary: Optional[str] = None
     department: str = ""
     tags: list = field(default_factory=list)
+    country: str = ""
     version: str = ""  # changes whenever the posting is edited
     detail: Optional[Callable[["Job"], Awaitable[None]]] = None  # lazy full-content fetch
 
@@ -547,6 +559,7 @@ async def fetch_lever(client, board):
             url=j.get("hostedUrl", ""), location=loc, remote=remote, description_html=desc,
             posted_at=j.get("createdAt"), job_type=cat.get("commitment", ""), salary=salary,
             department=dept, tags=[dept] if dept else [], version=ver(desc, salary),
+            country=j.get("country") or "",
         ))
     return None, out
 
@@ -577,6 +590,7 @@ async def fetch_ashby(client, board):
             description_html=desc, posted_at=j.get("publishedAt"),
             job_type=j.get("employmentType", ""), salary=salary,
             department=dept, tags=[dept] if dept else [], version=ver(desc, salary),
+            country=((j.get("address") or {}).get("postalAddress") or {}).get("addressCountry") or "",
         ))
     return None, out
 
@@ -600,6 +614,7 @@ async def fetch_workable(client, board):
             posted_at=j.get("published_on") or j.get("created_at"),
             job_type=j.get("employment_type", ""), department=dept,
             tags=[dept] if dept else [], version=ver(desc),
+            country=j.get("country") or "",
         ))
     return data.get("name"), out
 
@@ -638,6 +653,7 @@ async def fetch_smartrecruiters(client, board):
                 posted_at=j.get("releasedDate"),
                 job_type=(j.get("typeOfEmployment") or {}).get("label", ""),
                 department=dept, tags=[dept] if dept else [],
+                country=loc.get("country") or "",
             )
             job.detail = _sr_detail(client, board, j["id"])
             cname = cname or (j.get("company") or {}).get("name")
@@ -665,6 +681,7 @@ async def fetch_recruitee(client, board):
             description_html=desc, requirements_html=req, posted_at=j.get("published_at"),
             job_type=j.get("employment_type_code", ""), department=dept,
             tags=[dept] if dept else [], version=ver(desc, req),
+            country=j.get("country_code") or "",
         ))
     return data.get("company", {}).get("name") if isinstance(data.get("company"), dict) else None, out
 
@@ -852,7 +869,7 @@ class Engine:
         if US_ONLY:
             # location clearly outside the US -> drop now (before any detail fetch).
             # "Remote" / empty / unrecognised locations stay and get the description check.
-            jobs = [j for j in jobs if location_verdict(j.location) != "non_us"]
+            jobs = [j for j in jobs if job_verdict(j) != "non_us"]
         live = {job_slug(j, cslug): j for j in jobs if j.title and j.url}
         live_hash = {s: ver(j.title, j.url, j.version) for s, j in live.items()}
         stats["live"] = len(live)
